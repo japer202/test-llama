@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  # vLLM模型服务
+  qwen-vllm:
+    image: vllm/vllm-openai:latest
+    container_name: qwen-simple
+    ports:
+      - "8001:8000"  # 内部端口，不直接暴露
+    environment:
+      - CUDA_VISIBLE_DEVICES=0,1
+      - NVIDIA_VISIBLE_DEVICES=all
+    volumes:
+      - ./models:/app/models
+      - ~/.cache/huggingface:/root/.cache/huggingface
+    command: >
+      python -m vllm.entrypoints.openai.api_server
+      --model Qwen/Qwen2.5-7B-Instruct
+      --tensor-parallel-size 2
+      --gpu-memory-utilization 0.9
+      --host 0.0.0.0
+      --port 8000
+      --served-model-name qwen2.5-7b
+      --max-model-len 32768
+      --trust-remote-code
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 2
+              capabilities: [gpu]
+    restart: unless-stopped
+    networks:
+      - qwen-network
+
+  # 简单API网关
+  api-gateway:
+    build: ./api-gateway
+    container_name: qwen-gateway
+    ports:
+      - "3000:3000"
+    environment:
+      - API_KEY=${API_KEY}
+      - VLLM_URL=http://qwen-vllm:8000
+      - LOG_REQUESTS=true
+    depends_on:
+      - qwen-vllm
+    restart: unless-stopped
+    networks:
+      - qwen-network
+    volumes:
+      - ./volume/logs:/app/logs
+      - ./volume/database:/app/database
+
+networks:
+  qwen-network:
+    driver: bridge
+
+volumes:
+  models:
